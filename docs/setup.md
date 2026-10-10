@@ -61,7 +61,7 @@ With JACK running, my headless Guitarix configuration needs RPC port 7000 and tu
 guitarix -N -p 7000 --tuner-midi-feedback
 ```
 
-I retain my working JACK audio routing from the Pi. This snapshot does not include the automatic audio-routing supervisor, so launching these processes alone does not reproduce my full hotplug setup.
+I retain my working JACK audio routing from the Pi. My included hotplug supervisor manages process startup and recovery. It does not explicitly connect audio ports, so I verify my saved Guitarix/JACK routing on the Pi.
 
 I start the bridge from the repository root:
 
@@ -85,4 +85,32 @@ I verify that `/usr/bin/systemctl` exists on the target machine and that the exa
 
 My bridge connects `gx_head_amp:midi_out_1` to the newly created `jack_midi_dump` monitor input. I check those JACK port names when troubleshooting. The firmware clears a stale tuner reading after about 1.6 seconds.
 
-When Guitarix disappears, the bridge keeps the serial connection open and accepts poweroff requests while waiting for RPC to return. Starting and stopping JACK/Guitarix when the iD4 is removed belongs to my separate hotplug supervisor, which I still need to add to the repository.
+When Guitarix disappears, the bridge keeps the serial connection open and accepts poweroff requests while waiting for RPC to return. Starting and stopping JACK/Guitarix when the iD4 is removed belongs to my separate hotplug supervisor, now included as `src/audio_hotplug.py`.
+
+## Installing my user services
+
+I use the normal Pi account that owns my Guitarix presets and JACK session. These services run `/usr/bin/python3`, so I make `pyserial` available to that interpreter (for example, with the distribution's `python3-serial` package); the virtual environment above is only for manual startup.
+
+Before installation, I stop my old manual JACK/Guitarix processes and disable QjackCtl's automatic JACK startup. From the repository root, I run:
+
+```sh
+sh src/install.sh
+bash src/install_power_permission.sh
+sudo loginctl enable-linger "$USER"
+```
+
+I run both scripts as my normal account, not with `sudo` in front of the script. The power-permission script requests elevation for its specific sudoers installation steps. Lingering lets my user services start without a graphical login.
+
+My installer copies the bridge to `~/guitarix_bridge.py`, the supervisor to `~/.local/bin/audio_hotplug.py`, and both service units to `~/.config/systemd/user/`. It enables and starts the services immediately. If I rerun installation after updating the source, I restart them explicitly:
+
+```sh
+systemctl --user restart guitarix-hotplug.service guitarix-bridge.service
+systemctl --user status guitarix-hotplug.service guitarix-bridge.service
+journalctl --user -u guitarix-hotplug.service -u guitarix-bridge.service -n 100 --no-pager
+```
+
+The installed bridge stores mappings at `~/preset_map.json`. If I previously ran it from `src/`, I copy my existing mapping there before switching to the service, preserving any mapping already present in my home directory.
+
+The supervisor watches `/proc/asound/iD4`, waits about 1.5 seconds after detection, and launches JACK with real-time priority 70, 48 kHz, 256 frames, three periods, and `-Xseq`. My account still needs suitable real-time scheduling permissions and access to the audio device. It starts Guitarix with port 7000 and tuner feedback enabled.
+
+The QjackCtl desktop entry opens a monitor at graphical login; the entry itself does not disable QjackCtl's saved auto-start setting. I configure that setting in QjackCtl to avoid a second JACK owner.

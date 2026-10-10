@@ -1,0 +1,12 @@
+[Unit]
+Description=USB audio hotplug manager for JACK and Guitarix
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/.local/bin/audio_hotplug.py
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

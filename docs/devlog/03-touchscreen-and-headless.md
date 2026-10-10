@@ -37,7 +37,7 @@ For the tuner, I used Guitarix's `--tuner-midi-feedback` option and its `gx_head
 
 For shutdown, the screen asks for confirmation before sending `H|POWEROFF`. The bridge checks permission for the exact systemctl poweroff command and acknowledges that shutdown has started. I still wait for the Pi to halt before removing power.
 
-My deployed hotplug arrangement used a separate `audio_hotplug.py` process to manage JACK and Guitarix. That file is not included in the source snapshot I supplied for this repository. The bridge itself reconnects and keeps listening for poweroff requests while Guitarix is offline; it does not start or stop the audio services.
+My deployed hotplug arrangement used a separate `audio_hotplug.py` process to manage JACK and Guitarix. That file was absent from my first source snapshot; I added it in the [next import](04-deployment-files.md). The bridge itself reconnects and keeps listening for poweroff requests while Guitarix is offline; it does not start or stop the audio services.
 
 ## Importing the source on October 11
 

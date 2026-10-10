@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=QjackCtl (monitor only)
+Comment=JACK monitor; hotplug manager starts JACK
+Exec=qjackctl
+Terminal=false
+Categories=AudioVideo;Audio;
+X-GNOME-Autostart-enabled=true
