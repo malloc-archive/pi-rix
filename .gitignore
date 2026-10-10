@@ -1,0 +1,7 @@
+.pio/
+.vscode/
+.venv/
+__pycache__/
+*.py[cod]
+src/preset_map.json
+src/preset_map.json.tmp
