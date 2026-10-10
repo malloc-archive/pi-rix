@@ -1,10 +1,10 @@
-# My controller protocol
+# Controller protocol
 
-I exchange newline-terminated ASCII lines over USB serial at 115200 baud. Switch indices are 0–3 and slot indices are 0–1. I keep full preset names on the Pi and send shortened display labels to the Leonardo.
+The controller and bridge exchange newline-terminated ASCII lines over USB serial at 115200 baud. Switch indices are 0–3 and slot indices are 0–1. Full preset names stay on the Pi; shortened display labels are sent to the Leonardo.
 
 ## Leonardo to Pi
 
-| Message | How I use it |
+| Message | Purpose |
 | --- | --- |
 | `R` | Refresh bank, mappings, and active preset |
 | `P|switch|slot` | Select the assigned preset |
@@ -15,7 +15,7 @@ I exchange newline-terminated ASCII lines over USB serial at 115200 baud. Switch
 
 ## Pi to Leonardo
 
-| Message | How I use it |
+| Message | Purpose |
 | --- | --- |
 | `K|index|count|bank_name` | Bank header with zero-based index |
 | `M|switch|slot|preset_name` | A slot label; `----` denotes an empty slot |
@@ -27,10 +27,10 @@ I exchange newline-terminated ASCII lines over USB serial at 115200 baud. Switch
 | `H|STARTED` / `H|ERR` | Shutdown-request status, not a completed-halt signal |
 | `N|note_name|velocity` | Tuner note and tuning value, with 63 as center |
 
-I limit bank labels to 24 ASCII characters and preset labels to 18. I replace pipe characters and line breaks before sending labels; non-ASCII characters become replacement characters. Preset selection uses the full names or indices on the Pi, not the shortened labels.
+Bank labels are limited to 24 ASCII characters and preset labels to 18. Pipe characters and line breaks are replaced before transmission; non-ASCII characters become replacement characters. Preset selection uses the full names or indices on the Pi, not the shortened labels.
 
 ## Guitarix side
 
-I send JSON-RPC as newline-delimited JSON over TCP to `127.0.0.1:7000`, not as HTTP. My bridge uses `banks`, `get`, `listen`, and `setpreset`, and handles `preset_changed` notifications. If a preset request remains unconfirmed for 0.8 seconds, I query the current state.
+The bridge sends JSON-RPC as newline-delimited JSON over TCP to `127.0.0.1:7000`, not as HTTP. It uses `banks`, `get`, `listen`, and `setpreset`, and handles `preset_changed` notifications. If a preset request remains unconfirmed for 0.8 seconds, the bridge queries the current state.
 
-I store eight preset names per bank in `src/preset_map.json`, ordered FS1A, FS1B, FS2A, FS2B, FS3A, FS3B, FS4A, FS4B. I write a temporary file, flush and fsync it, then replace the mapping file. This reduces the risk of a truncated file; I do not claim full power-loss durability for every filesystem.
+The mapping file beside the bridge stores eight preset names per bank, ordered FS1A, FS1B, FS2A, FS2B, FS3A, FS3B, FS4A, FS4B. Saving writes a temporary file, flushes and fsyncs it, then replaces the mapping file. This reduces the risk of a truncated file; full power-loss durability depends on the filesystem.

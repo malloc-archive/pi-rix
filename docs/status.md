@@ -1,25 +1,23 @@
-# My current status
+# Project status
 
-## What I imported
+## Current implementation
 
-I imported my controller and latest bridge, then added the deployment files from `pi-rix10-11.zip`. The newer ZIP contains the same firmware, bridge, and PlatformIO configuration already in the repository. I added its supervisor, two user services, two installation scripts, and QjackCtl desktop entry.
+The repository contains the Leonardo firmware, Python bridge, audio hotplug supervisor, two systemd user services, installation scripts, and a QjackCtl autostart entry.
 
-I made two integration corrections: my installer now copies the bundled bridge to the path used by its service, and my supervisor enables Guitarix tuner MIDI feedback.
+The installer copies the bridge to the service's expected path. The supervisor starts Guitarix with tuner MIDI feedback enabled. Generated firmware binaries, downloaded PlatformIO libraries, editor configuration, and runtime preset mappings are excluded from Git.
 
-I left generated firmware binaries, downloaded PlatformIO libraries, and local editor configuration out of Git. I added dependency and setup documentation, and ignore runtime preset mappings so my personal assignments are not accidentally committed.
+## Validation
 
-## Validation for this import
+Python and shell syntax checks passed during repository integration. Service paths and serial message handlers were reviewed. The firmware was not rebuilt, and hardware, JACK, Guitarix, tuner, and shutdown tests were not rerun for this checkout.
 
-I checked Python syntax, shell syntax, service installation paths, and the matching serial message handlers in the firmware and bridge. I also checked the imported source against the supplied files. I did not rebuild the Leonardo firmware here because PlatformIO is not installed in the import environment. I did not rerun hardware, JACK, Guitarix, tuner, or shutdown tests during this import.
+Earlier hardware results are recorded in the development log. A fresh installation still needs verification on the Pi.
 
-My earlier hardware observations are recorded in the development log. They are distinct from fresh validation of this repository checkout.
+## Remaining work
 
-## What I still need to capture
+- Document saved audio routing and target-machine dependencies and permissions.
+- Record a reproducible firmware build with flash and SRAM usage.
+- Run a hardware smoke test covering all eight slots, saved assignments, tuner, reconnect, and offline shutdown.
+- Run longer audio-load tests with XRUN counts and measured round-trip latency.
+- Add the complete power and wiring schematic.
 
-- My saved audio routing and target-machine dependency/permission configuration.
-- A reproducible firmware build with flash and SRAM usage recorded.
-- A hardware smoke test covering all eight slots, saved assignments, tuner, reconnect, and offline shutdown.
-- Longer audio-load tests with XRUN counts and measured round-trip latency.
-- My complete power and wiring schematic.
-
-I have not added a license file because I have not selected a license for this project.
+No project license has been selected yet.

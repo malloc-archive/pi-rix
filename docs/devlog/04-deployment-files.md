@@ -1,11 +1,11 @@
-# Adding my deployment files
+# Adding deployment files
 
 *October 11, 2026 · Korea Standard Time*
 
-I added the remaining deployment files from `pi-rix10-11.zip`: my audio hotplug supervisor, bridge and hotplug user services, service installer, shutdown-permission installer, and QjackCtl desktop autostart entry. My firmware and Python bridge match the versions already imported.
+Added the audio hotplug supervisor, bridge and hotplug user services, service installer, shutdown-permission installer, and QjackCtl autostart entry. The firmware and Python bridge are unchanged.
 
-I corrected two integration gaps while bringing these files together. My service installer now copies the included bridge to `~/guitarix_bridge.py`, matching its ExecStart path. My supervisor now passes `--tuner-midi-feedback` when it starts Guitarix, so the tuner path does not depend on a separate manual launch.
+Two integration gaps needed attention: the installer did not copy the bridge to `~/guitarix_bridge.py`, where the service expects it, and the supervisor's Guitarix command lacked `--tuner-midi-feedback`. Both are now included.
 
-I keep the supervisor and bridge as separate user services so the controller can still accept shutdown requests while the audio interface is away. I retain the existing 48 kHz / 256 / 3 JACK configuration and real-time priority 70.
+The supervisor and bridge remain separate user services so the controller can accept shutdown requests while the audio interface is away. JACK retains the 48 kHz / 256 / 3 configuration and real-time priority 70.
 
-I checked Python and shell syntax for this update. I did not execute the installers, change a running Pi, or rerun hardware tests during the repository import. My saved audio routing and target-machine permissions still need to be in place for a fresh installation.
+Python and shell syntax checks passed. The updated installation has not been retested on the Pi; saved audio routing and target-machine permissions are still required for a fresh setup.

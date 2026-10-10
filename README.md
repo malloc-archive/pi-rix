@@ -1,12 +1,12 @@
 # pi-rix
 
-My Raspberry Pi guitar multi-effects project, built with Guitarix, JACK, and a touchscreen foot controller.
+A Raspberry Pi guitar multi-effects project, built with Guitarix, JACK, and a touchscreen foot controller.
 
-I am building a standalone rig that lets me play through Guitarix, switch presets with my feet, and manage banks from a small display. I use a Raspberry Pi 4B 8 GB for audio processing, an Audient iD4 MKII for audio I/O, and an Arduino Leonardo for the controls.
+A standalone rig for playing through Guitarix, switching presets with footswitches, and managing banks from a small display. A Raspberry Pi 4B 8 GB handles audio processing, an Audient iD4 MKII provides audio I/O, and an Arduino Leonardo handles the controls.
 
-## My current setup
+## Hardware and software
 
-| Component | My configuration |
+| Component | Configuration |
 | --- | --- |
 | Audio host | Raspberry Pi OS / Debian 13 Trixie, ARM64 |
 | Latest recorded RT kernel | `6.18.50+rpt-rpi-v8-rt` |
@@ -16,7 +16,7 @@ I am building a standalone rig that lets me play through Guitarix, switch preset
 | Display / touch | ST7796S SPI TFT, 480 × 320 landscape / FT6336U I²C |
 | Control link | USB serial at 115200 baud; local TCP JSON-RPC on port 7000 |
 
-## What I have implemented
+## Features
 
 - Four footswitches with A/B assignments: eight preset slots per bank.
 - Bank navigation, touchscreen preset assignment, and saved per-bank mappings.
@@ -25,28 +25,28 @@ I am building a standalone rig that lets me play through Guitarix, switch preset
 - Confirmed touchscreen shutdown requests, including standby while Guitarix is offline.
 - Reconnection handling for Guitarix and the Leonardo.
 
-I include my iD4 hotplug supervisor, systemd user services, installation scripts, and QjackCtl autostart entry. The supervisor starts JACK and Guitarix when the interface appears and cleans them up when it disappears. I configure dependencies, permissions, and my local audio routing on the Pi before using the services.
+The repository includes the iD4 hotplug supervisor, systemd user services, installation scripts, and QjackCtl autostart entry. The supervisor starts JACK and Guitarix when the interface appears and cleans them up when it disappears. Dependencies, permissions, and audio routing need to be configured on the Pi before using the services.
 
 ## Source and documentation
 
-| Path | What I keep there |
+| Path | Contents |
 | --- | --- |
-| [`src/main.cpp`](src/main.cpp) | My Leonardo firmware from the supplied project snapshot |
-| [`src/guitarix_bridge.py`](src/guitarix_bridge.py) | My latest separately supplied Python bridge |
-| [`src/audio_hotplug.py`](src/audio_hotplug.py) | My JACK/Guitarix hotplug supervisor |
-| [`src/install.sh`](src/install.sh) | My user-service installer |
-| [`platformio.ini`](platformio.ini) | My Leonardo build configuration |
+| [`src/main.cpp`](src/main.cpp) | Leonardo firmware |
+| [`src/guitarix_bridge.py`](src/guitarix_bridge.py) | Guitarix control, tuner, and shutdown bridge |
+| [`src/audio_hotplug.py`](src/audio_hotplug.py) | JACK/Guitarix hotplug supervisor |
+| [`src/install.sh`](src/install.sh) | User-service installer |
+| [`platformio.ini`](platformio.ini) | Leonardo build configuration |
 | [`docs/setup.md`](docs/setup.md) | Wiring, dependencies, and manual startup notes |
-| [`docs/protocol.md`](docs/protocol.md) | The serial protocol used by my firmware and bridge |
-| [`docs/devlog/`](docs/devlog/) | My development notes in chronological order |
+| [`docs/protocol.md`](docs/protocol.md) | The serial protocol used by the firmware and bridge |
+| [`docs/devlog/`](docs/devlog/) | Development notes in chronological order |
 | [`docs/status.md`](docs/status.md) | Validation limits and remaining repository work |
 
-## My development log
+## Development log
 
-1. [Getting my guitar running on the Pi](docs/devlog/01-audio-and-realtime.md) — September 8–10, 2026.
-2. [My first Leonardo controller](docs/devlog/02-midi-and-switches.md) — September 10–11, 2026.
+1. [Getting guitar audio running on the Pi](docs/devlog/01-audio-and-realtime.md) — September 8–10, 2026.
+2. [The first Leonardo controller](docs/devlog/02-midi-and-switches.md) — September 10–11, 2026.
 3. [Bringing the controller and headless audio together](docs/devlog/03-touchscreen-and-headless.md) — October 9–11, 2026.
 
-using Korea Standard Time for dates. I separate my recorded hardware results from what can be verified from the source snapshot.
+4. [Adding deployment files](docs/devlog/04-deployment-files.md) — October 11, 2026.
 
-4. [Adding my deployment files](docs/devlog/04-deployment-files.md) — October 11, 2026.
+Dates use Korea Standard Time.
