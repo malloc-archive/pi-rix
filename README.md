@@ -47,6 +47,6 @@ I include my iD4 hotplug supervisor, systemd user services, installation scripts
 2. [My first Leonardo controller](docs/devlog/02-midi-and-switches.md) — September 10–11, 2026.
 3. [Bringing the controller and headless audio together](docs/devlog/03-touchscreen-and-headless.md) — October 9–11, 2026.
 
-I write these notes retrospectively in my own voice, using Korea Standard Time for dates. I separate my recorded hardware results from what can be verified from the source snapshot.
+using Korea Standard Time for dates. I separate my recorded hardware results from what can be verified from the source snapshot.
 
 4. [Adding my deployment files](docs/devlog/04-deployment-files.md) — October 11, 2026.
