@@ -4,31 +4,36 @@
 
 Pin assignments are defined in `src/main.cpp`:
 
-| Signal | Leonardo connection |
+| Signal | ESP32-S3 GPIO |
 | --- | --- |
-| TFT CS | D10 |
-| TFT DC / LCD_RS | D9 |
-| TFT reset | D8 |
-| SD CS | D7 |
-| Touch interrupt | D6 |
-| Touch reset | D5 |
-| Touch SDA / SCL | D2 / D3 |
+| TFT CS | GPIO10 |
+| TFT DC / LCD_RS | GPIO9 |
+| TFT backlight control | GPIO21 |
+| TFT reset | GPIO8 |
+| SD CS | GPIO7 |
+| Touch interrupt | GPIO6 |
+| Touch reset | GPIO5 |
+| Touch SDA / SCL | GPIO17 / GPIO18 |
 | Touch I²C address | `0x38` |
-| Footswitches 1–4 | A0, A1, A2, A3, using internal pull-ups |
-| TFT SPI MOSI / SCK / MISO | ICSP header |
+| Footswitches 1–4 | GPIO4, GPIO15, GPIO16, GPIO14, using internal pull-ups |
+| TFT SPI MOSI / SCK / MISO | GPIO11 / GPIO12 / GPIO13 |
 
 Display and touch both use rotation 3. This signal map does not specify module power or level shifting; a complete electrical schematic is still needed.
+
+GPIO numbers are not physical header positions. The source configures SPI at 16 MHz and touch I²C at 100 kHz. Backlight GPIO21 is a control signal, not a direct LED power output.
 
 ## Building the firmware
 
 With PlatformIO installed, build and upload from the repository root:
 
 ```sh
-pio run -e leonardo
-pio run -e leonardo -t upload
+pio run -e esp32s3_n16r8
+pio run -e esp32s3_n16r8 -t upload
 ```
 
-The build configuration declares `moononournation/GFX Library for Arduino@^1.6.8`, plus `-mcall-prologues` and `-Wl,--relax`. Generated `.pio` outputs and downloaded dependencies are excluded from Git.
+The build configuration declares `espressif32@6.12.0` and `moononournation/GFX Library for Arduino@1.6.0`. Generated `.pio` outputs and downloaded dependencies are excluded from Git.
+
+The `esp32s3_n16r8` environment targets `esp32-s3-devkitc-1` with 16 MB QSPI flash and 8 MB octal PSRAM (`qio_opi`). Native USB CDC is enabled at boot. Connect the Pi to the native USB port marked OTG, and verify the resulting serial-device path before starting the bridge. The UI starts without waiting for a USB connection.
 
 ## Running the bridge
 
@@ -45,7 +50,7 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
-Check `SERIAL_PORT` in `src/guitarix_bridge.py` before starting. It defaults to `/dev/ttyACM0`; a stable `/dev/serial/by-id/...` path can be substituted for the connected Leonardo. The process needs serial-device access and write access to the bridge directory because it stores `preset_map.json` there.
+Check `SERIAL_PORT` in `src/guitarix_bridge.py` before starting. It defaults to `/dev/ttyACM0`; a stable `/dev/serial/by-id/...` path can be substituted for the connected ESP32-S3. The process needs serial-device access and write access to the bridge directory because it stores `preset_map.json` there.
 
 The recorded JACK baseline is:
 
@@ -114,3 +119,7 @@ The installed bridge stores mappings at `~/preset_map.json`. When migrating from
 The supervisor watches `/proc/asound/iD4`, waits about 1.5 seconds after detection, and launches JACK with real-time priority 70, 48 kHz, 256 frames, three periods, and `-Xseq`. The service account needs suitable real-time scheduling permissions and access to the audio device. It starts Guitarix with port 7000 and tuner feedback enabled.
 
 The QjackCtl desktop entry opens a monitor at graphical login; the entry itself does not disable QjackCtl's saved auto-start setting. Disable that setting in QjackCtl to avoid a second JACK owner.
+
+## Connection status
+
+The bridge sends `C|1` while Guitarix is ready and `C|0` while offline, normally once per second. On `C|0`, the firmware clears stale preset and tuner data and returns to `CONNECTING` / `WAITING`. Shutdown screens are preserved. Once online status has been observed, a heartbeat gap longer than six seconds also triggers the offline state. Recovery sends `C|1` before the refreshed bank, mappings, and active preset.

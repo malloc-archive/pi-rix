@@ -1,5 +1,5 @@
 [Unit]
-Description=Leonardo Guitarix preset and bank bridge
+Description=USB controller Guitarix preset and bank bridge
 
 [Service]
 Type=simple

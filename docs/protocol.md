@@ -1,8 +1,8 @@
 # Controller protocol
 
-The controller and bridge exchange newline-terminated ASCII lines over USB serial at 115200 baud. Switch indices are 0–3 and slot indices are 0–1. Full preset names stay on the Pi; shortened display labels are sent to the Leonardo.
+The controller and bridge exchange newline-terminated ASCII lines over USB serial at 115200 baud. Switch indices are 0–3 and slot indices are 0–1. Full preset names stay on the Pi; shortened display labels are sent to the ESP32-S3.
 
-## Leonardo to Pi
+## ESP32-S3 to Pi
 
 | Message | Purpose |
 | --- | --- |
@@ -13,7 +13,7 @@ The controller and bridge exchange newline-terminated ASCII lines over USB seria
 | `S|switch|slot|index` | Save a bank-relative preset index; `-1` clears the slot |
 | `H|POWEROFF` | Request shutdown after touchscreen confirmation |
 
-## Pi to Leonardo
+## Pi to ESP32-S3
 
 | Message | Purpose |
 | --- | --- |
@@ -25,6 +25,7 @@ The controller and bridge exchange newline-terminated ASCII lines over USB seria
 | `E|row|preset_name` | A preset-browser row, 0–4 |
 | `U|OK` / `U|ERR` | Assignment-save result |
 | `H|STARTED` / `H|ERR` | Shutdown-request status, not a completed-halt signal |
+| `C|1` / `C|0` | Guitarix online / offline status and periodic heartbeat |
 | `N|note_name|velocity` | Tuner note and tuning value, with 63 as center |
 
 Bank labels are limited to 24 ASCII characters and preset labels to 18. Pipe characters and line breaks are replaced before transmission; non-ASCII characters become replacement characters. Preset selection uses the full names or indices on the Pi, not the shortened labels.
@@ -34,3 +35,7 @@ Bank labels are limited to 24 ASCII characters and preset labels to 18. Pipe cha
 The bridge sends JSON-RPC as newline-delimited JSON over TCP to `127.0.0.1:7000`, not as HTTP. It uses `banks`, `get`, `listen`, and `setpreset`, and handles `preset_changed` notifications. If a preset request remains unconfirmed for 0.8 seconds, the bridge queries the current state.
 
 The mapping file beside the bridge stores eight preset names per bank, ordered FS1A, FS1B, FS2A, FS2B, FS3A, FS3B, FS4A, FS4B. Saving writes a temporary file, flushes and fsyncs it, then replaces the mapping file. This reduces the risk of a truncated file; full power-loss durability depends on the filesystem.
+
+## Connection-state handling
+
+The bridge announces online status before sending fresh bank and preset data, then repeats the status about once per second. Offline status clears the displayed state and blocks preset, bank, and assignment requests. Stale responses are ignored until online status returns; shutdown messages remain available. After an online heartbeat has been received, a gap longer than six seconds also returns the UI to `CONNECTING`.

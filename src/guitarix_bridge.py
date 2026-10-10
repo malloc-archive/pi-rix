@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Guitarix 0.46 JSON-RPC <-> Leonardo USB Serial bank and preset controller.
+"""Guitarix 0.46 JSON-RPC <-> controller USB Serial bank and preset controller.
 
-Leonardo -> Pi:
+controller -> Pi:
     R                 request complete bank / preset refresh
     P|switch|slot     select mapped preset (switch=0..3, slot=0..1)
     B|-1  or B|1     previous/next Guitarix bank
     L|page             fetch five Guitarix presets for setup screen
     S|switch|slot|index  persist preset assignment (-1 = unassign)
-Pi -> Leonardo:
+Pi -> controller:
     K|index|count|bank_name    bank title + page number (0-based index)
     M|switch|slot|preset_name  visible 8 slot names for this bank
     A|switch|slot|preset_name  confirmed Guitarix current preset
@@ -17,7 +17,8 @@ Pi -> Leonardo:
     U|OK or U|ERR           assignment saved / failed
     H|STARTED or H|ERR       system shutdown request state
     N|note_name|velocity     Guitarix MIDI tuner feedback (63=center)
-Leonardo -> Pi (additional):
+    C|1 or C|0              Guitarix online/offline + periodic heartbeat
+controller -> Pi (additional):
     H|POWEROFF              request safe shutdown (after UI confirmation)
 
 The per-bank mappings are kept in preset_map.json beside this file.
@@ -162,7 +163,7 @@ def send_bank(arduino, banks, mapping, bank_name):
     if index is None:
         return
     send(arduino, "K", index, len(banks), lcd_ascii(bank_name, 24))
-    # The 16 MHz Leonardo redraws individual TFT cards on each M message.
+    # The controller redraws individual TFT cards on each M message.
     # Pace serial updates so its USB receive buffer does not overflow.
     time.sleep(0.025)
     for i, name in enumerate(mapping[bank_name]):
@@ -182,7 +183,7 @@ def send_preset_page(arduino, banks, selected_bank, page):
     time.sleep(0.03)
     for row, name in enumerate(names[page * PRESETS_PER_PAGE:(page + 1) * PRESETS_PER_PAGE]):
         send(arduino, "E", row, lcd_ascii(name, 18))
-        time.sleep(0.04)  # TFT redraw on Leonardo is blocking
+        time.sleep(0.04)  # TFT redraw on controller is blocking
     arduino.flush()
 
 
@@ -258,7 +259,7 @@ def request_safe_poweroff(arduino):
     print("[POWER] Shutdown confirmed on touch screen; requesting poweroff", flush=True)
     send(arduino, "H", "STARTED")
     arduino.flush()
-    time.sleep(0.2)  # allow the Leonardo to draw the in-progress message
+    time.sleep(0.2)  # allow the controller to draw the in-progress message
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=8)
         if result.returncode != 0:
@@ -287,13 +288,17 @@ def wait_for_guitarix_or_poweroff(arduino):
     """Keep accepting safe-poweroff even when the audio interface is on the PC.
 
     When USB switching removes the iD4, audio_hotplug.py stops Guitarix.
-    The bridge must still read Leonardo USB serial to accept H|POWEROFF.
+    The bridge must still read controller USB serial to accept H|POWEROFF.
     """
     buf = bytearray()
     next_check = 0.0
+    next_status = 0.0
     print("[STANDBY] Guitarix offline; power button remains available", flush=True)
     while True:
         now = time.monotonic()
+        if now >= next_status:
+            send(arduino, "C", 0)
+            next_status = now + 1.0
         if now >= next_check:
             if guitarix_port_present():
                 return
@@ -447,6 +452,10 @@ def run_once(arduino):
         current = current_from_guitarix()
         visible_bank = current[0] if current[0] in mapping else banks[0]["name"]
 
+        # Mark the audio engine online BEFORE sending the new preset state.
+        # ESP32 ignores stale K/M/A packets while in offline/CONNECTING mode.
+        send(arduino, "C", 1)
+        last_status_sent = time.monotonic()
         send_bank(arduino, banks, mapping, visible_bank)
         send_active(arduino, mapping, *current)
         print("[READY] Bank arrows and footswitches enabled", flush=True)
@@ -462,9 +471,12 @@ def run_once(arduino):
         while True:
             tuner.ensure_started()
             now = time.monotonic()
+            if now - last_status_sent >= 1.0:
+                send(arduino, "C", 1)
+                last_status_sent = now
             latest = tuner.drain()
             if latest is not None and now - last_tuner_sent > 0.11:
-                # One short ASCII message; no FFT or floating point on Leonardo.
+                # One short ASCII message; no FFT or pitch detection on the controller.
                 if latest != last_tuner_value or now - last_tuner_sent > 0.5:
                     send(arduino, "N", latest[0], latest[1])
                     last_tuner_value = latest
@@ -614,12 +626,12 @@ def run_once(arduino):
 
 
 def main():
-    print(f"Guitarix {HOST}:{PORT}, Leonardo {SERIAL_PORT}", flush=True)
+    print(f"Guitarix {HOST}:{PORT}, controller {SERIAL_PORT}", flush=True)
     while True:
         try:
-            # Hold the Leonardo serial connection even while Guitarix is offline.
+            # Hold the controller serial connection even while Guitarix is offline.
             with serial.Serial(SERIAL_PORT, SERIAL_BAUD, timeout=0, write_timeout=2) as arduino:
-                time.sleep(1.5)  # Leonardo USB connection stabilization
+                time.sleep(1.5)  # controller USB connection stabilization
                 while True:
                     try:
                         run_once(arduino)
@@ -627,13 +639,14 @@ def main():
                         raise
                     except (OSError, ValueError, TypeError, RuntimeError, KeyError) as exc:
                         print(f"[RECONNECT] Guitarix: {type(exc).__name__}: {exc}", flush=True)
+                        send(arduino, "C", 0)
                         time.sleep(0.5)
                         wait_for_guitarix_or_poweroff(arduino)
         except KeyboardInterrupt:
             print("\nStopped", flush=True)
             return
         except (OSError, serial.SerialException) as exc:
-            print(f"[RECONNECT] Leonardo serial: {exc}", flush=True)
+            print(f"[RECONNECT] controller serial: {exc}", flush=True)
             time.sleep(2)
 
 

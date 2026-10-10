@@ -1,46 +1,60 @@
 /*
  * Raspberry Pi Guitarix pedal controller
- * Arduino Leonardo + ST7796S SPI TFT (320x480, landscape 480x320)
+ * ESP32-S3-WROOM-1-N16R8 + LCDWIKI MSP4031 ST7796S SPI TFT
+ * (portrait 320x480; landscape rotation 3 = 480x320)
  * + FT6336U touch (I2C) + four 3PDT ON-ON latching switches.
  *
- * Pi -> Leonardo, ASCII lines:
+ * Pi -> ESP32-S3, ASCII lines over native USB CDC (115200):
  *   K|index|count|bank name             display currently selected bank
  *   M|switch(0..3)|slot(0..1)|preset   mapping names in bank
  *   A|switch(0..3 or 255)|slot(0..1 or 255)|current preset name
- * Leonardo -> Pi:
+ * ESP32-S3 -> Pi:
  *   B|-1 or B|1                     prev/next Guitarix bank
  *   P|switch(0..3)|slot(0..1)       request preset by mapping
  *   R                                request state / map refresh
  *   L|page                           request actual Guitarix preset list page
  *   S|switch|slot|preset_index       assign preset in current bank (-1 = clear)
- * Pi -> Leonardo (additional):
+ * Pi -> ESP32-S3 (additional):
  *   T|page|page_count                preset picker page information
  *   E|row|preset_name                preset picker list entry (5 per page)
  *   U|OK  or  U|ERR                  assignment save acknowledgment
  *   H|STARTED  or H|ERR               Pi shutdown request status
  *   N|note_name|velocity              tuner feedback from Guitarix via Pi
- * Leonardo -> Pi (additional):
+ *   C|1 or C|0                      Guitarix online/offline + heartbeat
+ * ESP32-S3 -> Pi (additional):
  *   H|POWEROFF                        request safe operating system poweroff
  *
- * No MIDI Program Change for preset switching here: Guitarix is controlled by
- * Python through the verified JSON-RPC setpreset method. MIDIUSB can be added
- * independently for other CCs if desired.
+ * MIDI tuner decoding and Guitarix JSON-RPC are on the Raspberry Pi.
+ * Requires a Pi bridge with C|0 / C|1 status messages for offline feedback.
+ * Preset mappings and service paths remain compatible.
  */
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
 #include <Wire.h>
 #include <string.h>
 
-// -------------------- PINOUT --------------------
-#define TFT_CS      10
-#define TFT_DC       9  // LCD_RS
-#define TFT_RST      8
-#define SD_CS        7
-#define TOUCH_INT    6
-#define TOUCH_RST    5
-#define FT6336_ADDR  0x38
-const uint8_t FS_PIN[4] = {A0, A1, A2, A3};
-// LCD SPI: Leonardo ICSP MOSI/SCK/MISO; touch SDA=D2, SCL=D3.
+// -------------------- PINOUT: ESP32-S3 N16R8 --------------------
+// Based on the board silkscreen in the photo (USB-C ports at bottom).
+// Do not confuse GPIO numbers with physical pin positions.
+#define TFT_CS       10
+#define TFT_DC        9  // LCD_RS
+#define TFT_RST       8
+#define TFT_SCK      12
+#define TFT_MOSI     11
+#define TFT_MISO     13
+#define TFT_LED      21  // MSP4031 LED: HIGH on; LOW off (GPIO drives control only)
+#define SD_CS         7  // MicroSD card CS; keep HIGH while SD unused.
+#define TOUCH_INT     6
+#define TOUCH_RST     5
+#define TOUCH_SDA    17
+#define TOUCH_SCL    18
+#define FT6336_ADDR 0x38
+const uint8_t FS_PIN[4] = {4, 15, 16, 14};
+
+// Use modest SPI speed for initial bring-up with Dupont/soldered wires.
+// Increase to 20-40 MHz only after testing the actual wiring reliably.
+#define TFT_SPI_HZ  16000000UL
+#define TOUCH_I2C_HZ 100000UL
 
 // -------------------- DISPLAY --------------------
 #define LCD_ROTATION    3  // 180 degrees compared with landscape rotation 1
@@ -48,7 +62,9 @@ const uint8_t FS_PIN[4] = {A0, A1, A2, A3};
 #define SCREEN_W       480
 #define SCREEN_H       320
 
-Arduino_DataBus *bus = new Arduino_HWSPI(TFT_DC, TFT_CS);
+// ESP32-S3 hardware SPI with explicitly assigned pins.
+Arduino_DataBus *bus = new Arduino_ESP32SPI(
+    TFT_DC, TFT_CS, TFT_SCK, TFT_MOSI, TFT_MISO);
 Arduino_GFX *gfx = new Arduino_ST7796(bus, TFT_RST, LCD_ROTATION, false);
 
 #define C_BG         0x0841
@@ -118,6 +134,14 @@ char pickNames[PICK_ROWS][NAME_LEN];
 int8_t activeSwitch = -1;
 uint8_t activeSlot = 0;
 bool synced = false;
+// The USB serial connection to the Pi stays up when the audio interface is
+// switched to the PC. The Pi bridge reports Guitarix state explicitly.
+bool bridgeStatusSeen = false;
+bool audioReady = false;
+bool offlineShown = true;  // Startup UI already displays CONNECTING.
+uint8_t receivedMapMask = 0;
+unsigned long lastBridgeStatusMs = 0;
+const unsigned long BRIDGE_TIMEOUT_MS = 6000UL;
 
 // -------------------- 3PDT INPUT --------------------
 // Boot electrical level is logically A for EACH switch.
@@ -189,8 +213,8 @@ void initTouch() {
   delay(20);
   digitalWrite(TOUCH_RST, HIGH);
   delay(160);
-  Wire.begin();
-  Wire.setClock(100000);
+  Wire.begin(TOUCH_SDA, TOUCH_SCL);
+  Wire.setClock(TOUCH_I2C_HZ);
 }
 
 // -------------------- UI GEOMETRY --------------------
@@ -427,12 +451,17 @@ void drawPickScreen() {
   drawPickFooter();
 }
 
-// Tuner MIDI is decoded on the Raspberry Pi; no FFT or floating point on AVR.
+// Tuner MIDI is decoded on the Raspberry Pi; UI only draws the result.
 void drawTunerReading() {
-  // Redraw only the dynamic area (avoid flooding the 8 MHz SPI bus).
+  // Redraw only the dynamic area to avoid unnecessary SPI traffic.
   gfx->fillRect(28, 68, 424, 106, C_BG);
   drawCentered(tunerHasSignal ? tunerNote : "--", 240, 87, 5, C_WHITE);
   gfx->fillRect(28, 182, 424, 63, C_BG);
+  // Clear the STATUS text independently: it starts at y=253 (text size 2),
+  // outside the 182..244 meter redraw area. Otherwise FLAT / SHARP /
+  // IN TUNE / NO SIGNAL accumulate on top of each other.
+  // Keep this rectangle above the static LOW/HIGH labels at y=290.
+  gfx->fillRect(124, 248, 232, 28, C_BG);
   gfx->drawFastHLine(48, 213, 384, C_GRAY);
   gfx->fillRect(239, 187, 2, 51, C_ACCENT);
   if (tunerHasSignal) {
@@ -472,8 +501,34 @@ void drawUI() {
   for (uint8_t i = 0; i < 4; ++i) drawColumn(i);
 }
 
+// Clear stale bank/preset/tuner data once when the Pi loses its audio device.
+// Do not disrupt any power-off confirmation/status screens.
+void showConnecting() {
+  if (offlineShown) return;  // Periodic offline heartbeats must not redraw.
+  offlineShown = true;
+  synced = false;
+  activeSwitch = -1;
+  activeSlot = 0;
+  bankIndex = bankCount = 0;
+  receivedMapMask = 0;
+  strcpy(bankName, "CONNECTING");
+  strcpy(currentName, "WAITING");
+  for (uint8_t sw = 0; sw < 4; ++sw)
+    for (uint8_t slot = 0; slot < 2; ++slot)
+      strcpy(slotNames[sw][slot], "----");
+  tunerHasSignal = false;
+  strcpy(tunerNote, "--");
+  pickLoading = false;
+  savePending = false;
+  saveError = false;
+  if (screenMode <= SCREEN_PICK) {
+    screenMode = SCREEN_LIVE;
+    drawUI();
+  }
+}
+
 void requestPickPage(uint16_t page) {
-  if (!Serial) return;
+  if (!Serial || (bridgeStatusSeen && !audioReady)) return;
   pickPage = page;
   pickLoading = true;
   saveError = false;
@@ -484,7 +539,7 @@ void requestPickPage(uint16_t page) {
 }
 
 void sendSlotAssignment(int16_t presetIndex) {
-  if (!Serial || savePending) return;
+  if (!Serial || savePending || (bridgeStatusSeen && !audioReady)) return;
   savePending = true;
   saveStartedMs = millis();
   saveError = false;
@@ -500,11 +555,10 @@ void sendSlotAssignment(int16_t presetIndex) {
 // -------------------- PI SERIAL --------------------
 char incoming[96];
 uint8_t incomingLen = 0;
-uint8_t receivedMapMask = 0;
 unsigned long lastRequestSyncMs = 0;
 
 void sendBankRequest(int8_t direction) {
-  if (!Serial) return;
+  if (!Serial || (bridgeStatusSeen && !audioReady)) return;
   if (bankCount < 2) return;
   Serial.print(F("B|"));
   Serial.println(direction);
@@ -512,7 +566,7 @@ void sendBankRequest(int8_t direction) {
 
 void sendPresetRequest(uint8_t sw, uint8_t slot) {
   // Wait for Pi confirmation before changing active highlight or physical A/B mapping.
-  if (!Serial) return;
+  if (!Serial || (bridgeStatusSeen && !audioReady)) return;
   Serial.print(F("P|"));
   Serial.print(sw);
   Serial.print('|');
@@ -541,10 +595,25 @@ void handlePiLine(char *line) {
   char *type = strtok_r(line, "|", &save);
   if (!type) return;
 
+  // Connection status works even with USB CDC still connected to the Pi.
+  if (strcmp(type, "C") == 0) {
+    char *state = strtok_r(NULL, "|", &save);
+    if (!state || (strcmp(state, "0") != 0 && strcmp(state, "1") != 0)) return;
+    bridgeStatusSeen = true;
+    lastBridgeStatusMs = millis();
+    audioReady = (state[0] == '1');
+    if (audioReady) offlineShown = false;
+    else showConnecting();
+    return;
+  }
+
   // Ignore delayed bank/preset traffic while viewing shutdown UI.
   if ((screenMode == SCREEN_POWER_CONFIRM || screenMode == SCREEN_POWER_PENDING ||
        screenMode == SCREEN_POWER_DONE || screenMode == SCREEN_POWER_ERROR) &&
       type[0] != 'H') return;
+
+  // After C|0, discard stale Guitarix responses until the C|1 recovery.
+  if (bridgeStatusSeen && !audioReady && type[0] != 'H') return;
 
   if (type[0] == 'K') {
     char *sIndex = strtok_r(NULL, "|", &save);
@@ -680,6 +749,7 @@ void updatePiSerial() {
     }
   }
   if (screenMode != SCREEN_POWER_PENDING && screenMode != SCREEN_POWER_DONE &&
+      (!bridgeStatusSeen || audioReady) &&
       receivedMapMask != 0xFF && Serial &&
       millis() - lastRequestSyncMs >= 1500) {
     Serial.println(F("R"));
@@ -765,6 +835,7 @@ void updateTouch() {
                       (int16_t)(slot == 0 ? 94 : 197),
                       slotRects[sw][slot].w, 88};
             if (hit(r, t.x, t.y)) {
+              if (bridgeStatusSeen && !audioReady) return;
               editSwitch = sw; editSlot = slot;
               pickPageCount = 0;
               screenMode = SCREEN_PICK;
@@ -841,13 +912,23 @@ void updateTouch() {
 }
 
 void setup() {
+  // Native USB CDC on the port marked OTG. Do not wait for USB connection;
+  // footswitches and UI must work even while Pi/USB is disconnected.
   Serial.begin(115200);
+
+  // Keep SD unselected. TFT and SD share the SPI clock/data lines.
   pinMode(SD_CS, OUTPUT);
   digitalWrite(SD_CS, HIGH);
+
+  // MSP4031 LED input controls a backlight MOSFET, not LED current itself.
+  // HIGH turns the backlight on. The module has an internal pull-up, too.
+  pinMode(TFT_LED, OUTPUT);
+  digitalWrite(TFT_LED, HIGH);
+
   initializeSwitches();
   initTouch();
 
-  if (!gfx->begin(8000000)) {
+  if (!gfx->begin(TFT_SPI_HZ)) {
     // Cannot draw; retry only after power-cycle or reupload.
     for (;;) delay(1000);
   }
@@ -862,6 +943,12 @@ void setup() {
 void loop() {
   updateFootswitches();
   updatePiSerial();
+  // A crashed bridge / unplugged Pi must also return to CONNECTING.
+  if (bridgeStatusSeen && audioReady &&
+      millis() - lastBridgeStatusMs > BRIDGE_TIMEOUT_MS) {
+    audioReady = false;
+    showConnecting();
+  }
   updateTouch();
   if (savePending && millis() - saveStartedMs > 5000UL) {
     savePending = false;
